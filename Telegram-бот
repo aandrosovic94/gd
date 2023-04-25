@@ -1,0 +1,103 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Устанавливаем необходимые библиотеки.
+!sudo apt install tesseract-ocr
+
+# Оптическое распознавание символов
+!pip install pytesseract
+
+!pip install pyTelegramBotAPI
+
+import pytesseract
+import telebot
+import pathlib
+from telebot import types
+token ='5890181581:AAEAfw0n3RU9I-L4IxQkDFwVq164ROvDY8k'
+bot = telebot.TeleBot(token)
+bot = telebot.TeleBot(token, parse_mode='html')
+
+bot = telebot.TeleBot(token, parse_mode='html')
+tessdata_dir_config = r'--tessdata-dir "/content/drive/MyDrive/EngRus"' #путь к папке с языковыми пакетами для тессеракта 
+
+
+@bot.message_handler(commands=['start']) # запрс ботом изображения на команду /start
+def send_welcome(message):
+    send = bot.send_message(message.from_user.id, 'Здравствуйте! Я — бот, умею считывает текст с изображения на русском и английских языках.')
+    send = bot.send_message(message.from_user.id, 'Жду изображение!')
+    return
+
+
+@bot.message_handler(content_types=['photo', 'document']) # обработка ботом изображений
+def handler_file(message):
+    from pathlib import Path
+    Path(f'files/{message.chat.id}/').mkdir(parents=True, exist_ok=True) # Бот запрашивает изображение, получает и сохраняет file_id (загружает файл с сервера Телеграма)
+    file_info = bot.get_file(message.photo[len(message.photo) - 1].file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+    src = f'files/{message.chat.id}/' + file_info.file_path.replace('photos/', '')
+    if message.content_type == 'photo':
+        with open(src, "wb") as new_file:
+            new_file.write(downloaded_file)
+        send = bot.send_message(message.chat.id, f'Фото сохранено!')
+
+    elif message.content_type == 'document':
+        with open(src, 'wb') as new_file:
+            new_file.write(downloaded_file)
+        send = bot.send_message(message.chat.id, f'Файл сохранён!')
+
+    else:
+        send = bot.send_message(message.chat.id, f'пришлите изображение')
+
+        bot.send_photo(message.chat.id, open(src, 'rb'))
+        file = pathlib.Path(f'{src}')
+        file.unlink()
+
+    get_language(send,src)
+
+    return
+
+# Создаем выбор языка: русский и английский
+# Пропишем в коде параметр, создающий клавиатуру "InlineKeyboardMarkup"
+# Установим параметр для перенаправления пользователей на ссылку
+
+def get_language(message,src):
+    msg = bot.send_message(message.chat.id, f'Загружаю...')
+    bot.delete_message(message.chat.id, msg.message_id)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(types.InlineKeyboardButton(text="Русский", callback_data='rus '+src))
+    markup.add(types.InlineKeyboardButton(text="Английский", callback_data='en '+src))
+    item1 = types.InlineKeyboardButton("русский", callback_data='rus')
+    item2 = types.InlineKeyboardButton("английский", callback_data='en')
+    bot.send_message(message.chat.id, 'Выберите язык', reply_markup=markup)
+    markup.add(item1, item2)
+
+
+    return
+
+# Функция по обработке кнопок "Русский" и "Английский"
+# Функция запустится при нажатии пользователем на кнопку
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+    language = None
+    try:
+        if call.message:
+            src = call.data.split(' ')[1]
+            if call.data.split(' ')[0] == 'rus':
+                bot.send_message(call.message.chat.id, 'русский')
+                bot.send_message(call.message.chat.id, pytesseract.image_to_string(src, lang='rus', config=tessdata_dir_config))
+            elif call.data.split(' ')[0] == 'en':
+                bot.send_message(call.message.chat.id, 'английский')
+                bot.send_message(call.message.chat.id, pytesseract.image_to_string(src, lang='eng', config=tessdata_dir_config))
+
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+                                  text="Выберите язык",
+                                  reply_markup=None)
+
+            bot.answer_callback_query(callback_query_id=call.id, show_alert=False, # передает серверу Телеграмма информацию о том, что обработка данного callback-запроса завершена. 
+                                      text=f"Вы выбрали: {call.data} язык")
+    except Exception as e: # проверка ошибок
+        print(repr(e))
+
+
+bot.polling(none_stop=True) 
